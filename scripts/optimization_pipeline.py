@@ -1,6 +1,6 @@
 """
-优化管道模块
-整合所有组件，提供完整的模型优化流程
+Optimization pipeline module.
+Coordinates components to provide a full model optimization workflow.
 """
 
 import os
@@ -18,7 +18,7 @@ from strategy_searcher import GreedyStrategySearcher, SearchResult
 
 
 class OptimizationReport:
-    """优化报告类"""
+    """Optimization report."""
     
     def __init__(self):
         self.model_info = {}
@@ -30,7 +30,7 @@ class OptimizationReport:
         self.warnings = []
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式"""
+        """Convert to a dictionary."""
         return {
             "model_info": self.model_info,
             "optimization_config": self.optimization_config,
@@ -43,29 +43,29 @@ class OptimizationReport:
         }
     
     def save_to_file(self, file_path: str):
-        """保存报告到文件"""
+        """Save report to a file."""
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
 
 class OptimizationPipeline:
-    """完整的优化管道"""
+    """Full optimization pipeline."""
     
     def __init__(self, config: ModelConfig):
         self.config = config
         self.report = OptimizationReport()
         
-        # 初始化各个组件
+        # Component instances
         self.extractor = None
         self.generator = None
         self.evaluator = None
         self.searcher = None
         
-        # 记录时间
+        # Timing stats
         self.timing = {}
     
     def optimize_onnx_model(self) -> Tuple[str, Dict[str, Any]]:
-        """执行完整的模型优化流程"""
+        """Run the full model optimization workflow."""
         print("="*60)
         print("Starting ONNX Model Optimization Pipeline")
         print("="*60)
@@ -73,20 +73,20 @@ class OptimizationPipeline:
         total_start_time = time.time()
         
         try:
-            # 1. 初始化和模型分析
+            # 1. Initialization and model analysis
             self._initialize_components()
             layer_infos = self._analyze_model()
             
-            # 2. 策略生成
+            # 2. Strategy generation
             strategies_per_layer = self._generate_strategies(layer_infos)
             
-            # 3. 策略搜索
+            # 3. Strategy search
             search_result = self._search_optimal_strategies(layer_infos, strategies_per_layer)
             
-            # 4. 最终验证和模型生成
+            # 4. Final validation and model generation
             optimized_model_path = self._finalize_optimization(search_result)
             
-            # 5. 生成报告
+            # 5. Report generation
             total_time = time.time() - total_start_time
             self._generate_final_report(search_result, total_time)
             
@@ -104,12 +104,12 @@ class OptimizationPipeline:
             raise
     
     def _initialize_components(self):
-        """初始化所有组件"""
+        """Initialize all components."""
         print("1. Initializing components...")
         
         start_time = time.time()
         
-        # 初始化各个组件
+        # Initialize components
         self.extractor = ONNXNodeInfoExtractor(self.config)
         self.generator = RVVAwareStrategyGenerator(self.config.rvv_length)
         self.evaluator = MSEAccuracyEstimator(self.config)
@@ -117,7 +117,7 @@ class OptimizationPipeline:
         
         self.timing["initialization"] = time.time() - start_time
         
-        # 记录配置信息
+        # Record configuration
         self.report.optimization_config = {
             "onnx_path": self.config.onnx_path,
             "layers_json_path": self.config.layers_json_path,
@@ -130,20 +130,20 @@ class OptimizationPipeline:
         print(f"   ✓ Components initialized in {self.timing['initialization']:.2f}s")
     
     def _analyze_model(self) -> List:
-        """分析模型结构"""
+        """Analyze the model structure."""
         print("2. Analyzing model structure...")
         
         start_time = time.time()
         
-        # 提取层信息
+        # Extract layer info
         layer_infos = self.extractor.extract_layer_info()
         
-        # 获取模型摘要
+        # Get model summary
         model_summary = self.extractor.get_model_summary()
         
         self.timing["model_analysis"] = time.time() - start_time
         
-        # 记录模型信息
+        # Record model info
         self.report.model_info = model_summary
         self.report.layer_analysis = {
             "total_target_layers": len(layer_infos),
@@ -173,7 +173,7 @@ class OptimizationPipeline:
         return layer_infos
     
     def _generate_strategies(self, layer_infos: List) -> Dict[str, List]:
-        """生成优化策略"""
+        """Generate optimization strategies."""
         print("3. Generating optimization strategies...")
         
         start_time = time.time()
@@ -194,7 +194,7 @@ class OptimizationPipeline:
         
         self.timing["strategy_generation"] = time.time() - start_time
         
-        # 创建策略摘要
+        # Build strategy summary
         all_strategies = []
         for strategies in strategies_per_layer.values():
             all_strategies.extend(strategies)
@@ -215,17 +215,17 @@ class OptimizationPipeline:
         return strategies_per_layer
     
     def _search_optimal_strategies(self, layer_infos: List, strategies_per_layer: Dict) -> SearchResult:
-        """搜索最优策略组合"""
+        """Search for the optimal strategy combination."""
         print("4. Searching for optimal strategy combination...")
         
         start_time = time.time()
         
-        # 执行搜索
+        # Run search
         search_result = self.searcher.search_optimal_strategies(layer_infos, strategies_per_layer)
         
         self.timing["strategy_search"] = time.time() - start_time
         
-        # 记录搜索结果
+        # Record search results
         self.report.search_results = {
             "search_time_seconds": search_result.search_time_seconds,
             "total_evaluations": search_result.total_evaluations,
@@ -251,27 +251,27 @@ class OptimizationPipeline:
         return search_result
     
     def _finalize_optimization(self, search_result: SearchResult) -> str:
-        """最终验证和模型生成"""
+        """Finalize and generate the optimized model."""
         print("5. Generating optimized model...")
         
         start_time = time.time()
         
-        # 应用最终策略到模型
+        # Apply strategies to the model
         optimized_model = self.evaluator.apply_strategies_to_onnx(search_result.strategies)
         
-        # 保存优化后的模型
+        # Save optimized model
         optimized_model_path = self.config.get_optimized_model_path()
         onnx.save(optimized_model, optimized_model_path)
         
-        # 最终验证
+        # Final validation
         validation_test_data = self.extractor.generate_test_data(num_samples=16)
         
-        # 计算真实的性能指标
+        # Compute actual performance metrics
         final_mse = self.evaluator.evaluate_mse(
             self.evaluator.original_model, optimized_model, validation_test_data
         )
         
-        # 测量实际延迟
+        # Measure actual latency
         try:
             original_latency = self.evaluator.measure_latency(
                 self.config.onnx_path, validation_test_data
@@ -285,14 +285,14 @@ class OptimizationPipeline:
             actual_latency_improvement = search_result.estimated_latency_improvement
             self.report.warnings.append(f"Latency measurement failed: {str(e)}")
         
-        # 计算模型大小变化
+        # Compute model size change
         original_size = os.path.getsize(self.config.onnx_path)
         optimized_size = os.path.getsize(optimized_model_path)
         size_reduction = (original_size - optimized_size) / original_size
         
         self.timing["finalization"] = time.time() - start_time
         
-        # 记录最终性能
+        # Record final performance
         self.report.final_performance = {
             "final_accuracy_loss": final_mse,
             "estimated_latency_improvement": search_result.estimated_latency_improvement,
@@ -308,7 +308,7 @@ class OptimizationPipeline:
         print(f"   ✓ Model size reduction: {size_reduction*100:.1f}%")
         print(f"   ✓ Model finalization completed in {self.timing['finalization']:.2f}s")
         
-        # 检查是否满足精度要求
+        # Check accuracy requirement
         if final_mse > self.config.accuracy_threshold:
             warning_msg = f"Final accuracy loss ({final_mse:.6f}) exceeds threshold ({self.config.accuracy_threshold:.6f})"
             print(f"   ⚠ Warning: {warning_msg}")
@@ -317,10 +317,10 @@ class OptimizationPipeline:
         return optimized_model_path
     
     def _generate_final_report(self, search_result: SearchResult, total_time: float):
-        """生成最终报告"""
+        """Generate the final report."""
         print("6. Generating optimization report...")
         
-        # 记录时间分解
+        # Record timing breakdown
         self.report.timing_breakdown = {
             "total_time_seconds": total_time,
             "initialization_seconds": self.timing.get("initialization", 0),
@@ -330,14 +330,14 @@ class OptimizationPipeline:
             "finalization_seconds": self.timing.get("finalization", 0)
         }
         
-        # 保存报告
+        # Save report
         report_path = self.config.get_report_path()
         self.report.save_to_file(report_path)
         
         print(f"   ✓ Optimization report saved to: {report_path}")
     
     def get_optimization_summary(self) -> Dict[str, Any]:
-        """获取优化摘要"""
+        """Get an optimization summary."""
         return {
             "success": len(self.report.warnings) == 0,
             "accuracy_loss": self.report.final_performance.get("final_accuracy_loss", 0),
@@ -351,9 +351,9 @@ class OptimizationPipeline:
 def optimize_onnx_model(onnx_path: str, layers_json_path: str, input_shape: Tuple[int, ...],
                        rvv_length: int = 128, accuracy_threshold: float = 0.01,
                        output_dir: str = "./optimized_models") -> Tuple[str, Dict[str, Any]]:
-    """便捷的模型优化函数"""
+    """Convenience helper to optimize a model."""
     
-    # 创建配置
+    # Create configuration
     config = ModelConfig(
         onnx_path=onnx_path,
         layers_json_path=layers_json_path,
@@ -363,17 +363,17 @@ def optimize_onnx_model(onnx_path: str, layers_json_path: str, input_shape: Tupl
         output_dir=output_dir
     )
     
-    # 创建优化管道
+    # Create pipeline
     pipeline = OptimizationPipeline(config)
     
-    # 执行优化
+    # Run optimization
     return pipeline.optimize_onnx_model()
 
 
 if __name__ == "__main__":
-    # 测试代码
+    # Test code
     try:
-        # 示例用法
+        # Example usage
         optimized_model_path, report = optimize_onnx_model(
             onnx_path="/doc2/zhzh/models_tvm/yolov4.onnx",
             layers_json_path="simplified_matching_results.json",

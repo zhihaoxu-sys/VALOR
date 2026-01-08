@@ -1,6 +1,6 @@
 """
-策略搜索模块
-实现两阶段搜索：BOHB全局粗搜 + 贪心局部精调
+Strategy search module.
+Implements a two-stage search: BOHB global search + greedy local refinement.
 """
 
 import numpy as np
@@ -18,7 +18,7 @@ from mse_evaluator import MSEAccuracyEstimator
 
 @dataclass
 class SearchResult:
-    """搜索结果数据结构"""
+    """Search result data structure."""
     strategies: List[OptimizationStrategy]
     accuracy_loss: float
     estimated_latency_improvement: float
@@ -27,7 +27,7 @@ class SearchResult:
 
 
 class BudgetAllocator:
-    """预算分配器"""
+    """Budget allocator."""
     
     def __init__(self, global_threshold: float):
         self.global_threshold = global_threshold
@@ -36,13 +36,13 @@ class BudgetAllocator:
         self.locked_layers = set()
     
     def allocate_initial_budgets(self, layer_infos: List[LayerInfo]) -> Dict[str, float]:
-        """初始预算分配"""
-        # 1. 计算总MAC
+        """Allocate initial budgets."""
+        # 1. Total MACs
         total_mac = sum(layer.mac_count for layer in layer_infos if layer.has_weights)
         if total_mac == 0:
             return {layer.name: 0.0 for layer in layer_infos}
         
-        # 2. 按MAC比例初分配
+        # 2. Allocate proportionally by MACs
         initial_budgets = {}
         for layer in layer_infos:
             if layer.has_weights:
@@ -50,10 +50,10 @@ class BudgetAllocator:
             else:
                 initial_budgets[layer.name] = 0.0
         
-        # 3. 识别需要锁死的层（首层/末层的启发式判断）
+        # 3. Identify locked layers (first/last heuristic)
         self._identify_locked_layers(layer_infos)
         
-        # 4. 重新分配锁死层的预算
+        # 4. Reallocate locked layer budgets
         locked_budget = sum(initial_budgets[layer.name] for layer in layer_infos 
                            if layer.name in self.locked_layers)
         
@@ -76,23 +76,23 @@ class BudgetAllocator:
         return final_budgets
     
     def _identify_locked_layers(self, layer_infos: List[LayerInfo]):
-        """识别需要锁死的敏感层"""
-        # 简单启发式：锁死第一层和最后一层
+        """Identify sensitive layers to lock."""
+        # Heuristic: lock the first and last weighted layer
         if layer_infos:
-            # 第一个有权重的层
+            # First weighted layer
             for layer in layer_infos:
                 if layer.has_weights:
                     self.locked_layers.add(layer.name)
                     break
             
-            # 最后一个有权重的层
+            # Last weighted layer
             for layer in reversed(layer_infos):
                 if layer.has_weights:
                     self.locked_layers.add(layer.name)
                     break
     
     def update_remaining_pool(self, layer_name: str, actual_loss: float):
-        """更新剩余预算池"""
+        """Update the remaining budget pool."""
         allocated_budget = self.layer_budgets.get(layer_name, 0.0)
         if actual_loss < allocated_budget:
             saved_budget = allocated_budget - actual_loss
@@ -100,12 +100,12 @@ class BudgetAllocator:
             self.layer_budgets[layer_name] = actual_loss
     
     def can_borrow_budget(self, layer_name: str, requested_budget: float) -> bool:
-        """检查是否可以从剩余池借用预算"""
+        """Check whether the layer can borrow from the pool."""
         current_budget = self.layer_budgets.get(layer_name, 0.0)
         return (current_budget + self.remaining_pool) >= requested_budget
     
     def borrow_budget(self, layer_name: str, requested_budget: float) -> bool:
-        """从剩余池借用预算"""
+        """Borrow budget from the pool."""
         current_budget = self.layer_budgets.get(layer_name, 0.0)
         shortfall = requested_budget - current_budget
         
@@ -117,42 +117,42 @@ class BudgetAllocator:
 
 
 class GreedyStrategySearcher:
-    """策略搜索器"""
+    """Strategy searcher."""
     
     def __init__(self, config: ModelConfig, evaluator: MSEAccuracyEstimator):
         self.config = config
         self.evaluator = evaluator
         self.budget_allocator = BudgetAllocator(config.accuracy_threshold)
         
-        # BOHB搜索参数
+        # BOHB search params
         self.bohb_trials = 300
         self.early_stop_multiplier = 1.2
         self.min_samples = 2
         self.max_samples = 32
         self.sample_progression = [2, 4, 8, 16, 32]
         
-        # 搜索统计
+        # Search stats
         self.total_evaluations = 0
         self.search_start_time = 0
     
     def search_optimal_strategies(self, layer_infos: List[LayerInfo], 
                                 strategies_per_layer: Dict[str, List[OptimizationStrategy]]) -> SearchResult:
-        """主搜索流程"""
+        """Main search workflow."""
         self.search_start_time = time.time()
         
-        # 分配预算
+        # Allocate budgets
         layer_budgets = self.budget_allocator.allocate_initial_budgets(layer_infos)
         
         print(f"Starting optimization with {len(layer_infos)} layers, global threshold: {self.config.accuracy_threshold}")
         print(f"Layer budgets: {layer_budgets}")
         
-        # 阶段A: BOHB全局粗搜
+        # Phase A: BOHB global search
         print("Phase A: Global search with BOHB...")
         pareto_candidates = self.global_search_bohb(layer_infos, strategies_per_layer, layer_budgets)
         
         if not pareto_candidates:
             print("Warning: No feasible candidates found in global search")
-            # 返回原始策略
+            # Return original strategies
             original_strategies = [OptimizationStrategy(
                 layer_name=layer.name,
                 strategy_type=StrategyType.ORIGINAL,
@@ -168,7 +168,7 @@ class GreedyStrategySearcher:
                 total_evaluations=self.total_evaluations
             )
         
-        # 阶段B: 贪心局部精调
+        # Phase B: greedy local refinement
         print(f"Phase B: Local refinement with {len(pareto_candidates)} candidates...")
         best_result = self.local_greedy_refine(pareto_candidates, layer_infos, strategies_per_layer)
         
@@ -186,16 +186,16 @@ class GreedyStrategySearcher:
     def global_search_bohb(self, layer_infos: List[LayerInfo], 
                           strategies_per_layer: Dict[str, List[OptimizationStrategy]],
                           layer_budgets: Dict[str, float]) -> List[Dict[str, Any]]:
-        """BOHB全局粗搜"""
+        """BOHB global search."""
         
-        # 准备测试数据
+        # Prepare test data
         from onnx_info_extractor import ONNXNodeInfoExtractor
         extractor = ONNXNodeInfoExtractor(self.config)
         test_data = extractor.generate_test_data(num_samples=self.max_samples)
         
-        # 创建Optuna study
+        # Create Optuna study
         study = optuna.create_study(
-            direction="minimize",  # 最小化延迟
+            direction="minimize",  # Minimize latency
             pruner=optuna.pruners.HyperbandPruner(
                 min_resource=self.min_samples,
                 max_resource=self.max_samples,
@@ -208,11 +208,11 @@ class GreedyStrategySearcher:
             return self._bohb_objective(trial, layer_infos, strategies_per_layer, 
                                       layer_budgets, test_data)
         
-        # 运行优化
+        # Run optimization
         study.optimize(objective, n_trials=self.bohb_trials, 
                       callbacks=[self._trial_callback])
         
-        # 提取Pareto最优解
+        # Extract Pareto candidates
         pareto_candidates = self._extract_pareto_candidates(study)
         
         print(f"BOHB completed: {len(study.trials)} trials, {len(pareto_candidates)} Pareto candidates")
@@ -223,9 +223,9 @@ class GreedyStrategySearcher:
                        strategies_per_layer: Dict[str, List[OptimizationStrategy]],
                        layer_budgets: Dict[str, float], 
                        test_data: List[np.ndarray]) -> float:
-        """BOHB目标函数"""
+        """BOHB objective."""
         try:
-            # 为每层选择策略
+            # Select strategies per layer
             selected_strategies = []
             for layer in layer_infos:
                 if layer.name not in strategies_per_layer:
@@ -235,7 +235,7 @@ class GreedyStrategySearcher:
                 if not available_strategies:
                     continue
                 
-                # 创建策略选择参数
+                # Strategy selection parameter
                 strategy_names = [f"{s.strategy_type.value}_{hash(str(s.parameters))}" 
                                 for s in available_strategies]
                 
@@ -247,31 +247,31 @@ class GreedyStrategySearcher:
             if predicted_loss > self.config.accuracy_threshold * self.early_stop_multiplier:
                 raise optuna.TrialPruned()
             
-            # 获取本次trial的样本数预算
+            # Sample budget for this trial
             n_samples = trial.suggest_categorical("n_samples", self.sample_progression)
             current_test_data = test_data[:n_samples]
             
-            # Early stopping: 快速精度检查
+            # Early stopping: quick accuracy check
             if n_samples == self.min_samples:
                 if predicted_loss > self.config.accuracy_threshold * self.early_stop_multiplier:
                     raise optuna.TrialPruned()
             
-            # 完整评估
+            # Full evaluation
             mse_loss = self._evaluate_strategies_mse(selected_strategies, current_test_data)
             estimated_latency = self._estimate_latency_improvement(selected_strategies)
             
-            # 检查精度约束
+            # Check accuracy constraint
             if mse_loss > self.config.accuracy_threshold:
-                # 返回一个大的惩罚值，但不prune（因为后续更大的budget可能有救）
+                # Return penalty value; later budgets might still recover
                 return 1000.0 + mse_loss
             
-            # 记录trial信息用于后续Pareto提取
+            # Record trial info for Pareto extraction
             trial.set_user_attr("strategies", selected_strategies)
             trial.set_user_attr("mse_loss", mse_loss)
             trial.set_user_attr("latency_improvement", estimated_latency)
             
-            # 返回延迟目标（越小越好）
-            return 1.0 / estimated_latency  # 最小化倒数 = 最大化加速比
+            # Return latency objective (smaller is better)
+            return 1.0 / estimated_latency  # Minimize reciprocal = maximize speedup
         
         except optuna.TrialPruned:
             raise
@@ -281,12 +281,12 @@ class GreedyStrategySearcher:
     
     def _evaluate_strategies_mse(self, strategies: List[OptimizationStrategy], 
                                test_data: List[np.ndarray]) -> float:
-        """评估策略组合的MSE损失"""
+        """Evaluate MSE loss for a strategy set."""
         try:
-            # 应用策略到模型
+            # Apply strategies to the model
             modified_model = self.evaluator.apply_strategies_to_onnx(strategies)
             
-            # 计算MSE
+            # Compute MSE
             mse = self.evaluator.evaluate_mse(self.evaluator.original_model, 
                                             modified_model, test_data)
             
@@ -298,7 +298,7 @@ class GreedyStrategySearcher:
             return float('inf')
     
     def _estimate_latency_improvement(self, strategies: List[OptimizationStrategy]) -> float:
-        """估算延迟改善（基于策略的预期加速比）"""
+        """Estimate latency improvement from expected speedups."""
         total_speedup = 1.0
         for strategy in strategies:
             if hasattr(strategy, 'expected_speedup'):
@@ -307,12 +307,12 @@ class GreedyStrategySearcher:
         return total_speedup
     
     def _trial_callback(self, study, trial):
-        """Trial回调函数，用于监控进度"""
+        """Trial callback for progress reporting."""
         if trial.number % 50 == 0:
             print(f"Trial {trial.number}: Best value so far: {study.best_value}")
     
     def _extract_pareto_candidates(self, study) -> List[Dict[str, Any]]:
-        """从study中提取Pareto最优候选"""
+        """Extract Pareto candidates from the study."""
         candidates = []
         
         for trial in study.trials:
@@ -322,7 +322,7 @@ class GreedyStrategySearcher:
                     mse_loss = user_attrs["mse_loss"]
                     latency_improvement = user_attrs["latency_improvement"]
                     
-                    # 只保留满足精度约束的candidate
+                    # Keep only candidates that meet accuracy constraints
                     if mse_loss <= self.config.accuracy_threshold:
                         candidates.append({
                             "strategies": user_attrs["strategies"],
@@ -331,30 +331,30 @@ class GreedyStrategySearcher:
                             "trial_number": trial.number
                         })
         
-        # Pareto排序：优先选择延迟改善大且精度损失小的
+        # Pareto sort: prefer larger speedups and lower loss
         candidates.sort(key=lambda x: (-x["latency_improvement"], x["mse_loss"]))
         
-        # 返回top-K个候选（避免后续阶段计算量过大）
+        # Return top-K candidates to limit downstream cost
         return candidates[:10]
     
     def local_greedy_refine(self, pareto_candidates: List[Dict[str, Any]], 
                            layer_infos: List[LayerInfo],
                            strategies_per_layer: Dict[str, List[OptimizationStrategy]]) -> Dict[str, Any]:
-        """贪心局部精调"""
+        """Greedy local refinement."""
         
-        # 选择最优候选作为起点
-        best_candidate = pareto_candidates[0]  # 已经按延迟改善排序
+        # Start from the best candidate
+        best_candidate = pareto_candidates[0]  # Already sorted by latency improvement
         current_strategies = best_candidate["strategies"].copy()
         current_mse = best_candidate["mse_loss"]
         current_latency = best_candidate["latency_improvement"]
         
         print(f"Starting local refinement from candidate with latency improvement: {current_latency:.2f}x")
         
-        # 按MAC降序排列层（优先优化高价值层）
+        # Sort layers by MACs (optimize high-value layers first)
         sorted_layers = sorted([layer for layer in layer_infos if layer.has_weights], 
                              key=lambda x: x.mac_count, reverse=True)
         
-        # 准备小批量测试数据用于快速评估
+        # Prepare small batch test data for quick evaluation
         from onnx_info_extractor import ONNXNodeInfoExtractor
         extractor = ONNXNodeInfoExtractor(self.config)
         quick_test_data = extractor.generate_test_data(num_samples=8)
@@ -368,7 +368,7 @@ class GreedyStrategySearcher:
             available_strategies = strategies_per_layer[layer.name]
             current_strategy_for_layer = None
             
-            # 找到当前层使用的策略
+            # Find current strategy for the layer
             for strategy in current_strategies:
                 if strategy.layer_name == layer.name:
                     current_strategy_for_layer = strategy
@@ -377,23 +377,23 @@ class GreedyStrategySearcher:
             if not current_strategy_for_layer:
                 continue
             
-            # 尝试更激进的策略
+            # Try more aggressive strategies
             better_strategies = self._get_more_aggressive_strategies(
                 current_strategy_for_layer, available_strategies)
             
             for candidate_strategy in better_strategies:
-                # 创建临时策略组合
+                # Build a temporary strategy set
                 temp_strategies = current_strategies.copy()
                 for i, s in enumerate(temp_strategies):
                     if s.layer_name == layer.name:
                         temp_strategies[i] = candidate_strategy
                         break
                 
-                # 快速评估
+                # Quick evaluation
                 temp_mse = self._evaluate_strategies_mse(temp_strategies, quick_test_data)
                 temp_latency = self._estimate_latency_improvement(temp_strategies)
                 
-                # 检查是否改善（延迟更好且精度仍满足要求）
+                # Check for improvement (better latency, meets accuracy)
                 if (temp_latency > current_latency and 
                     temp_mse <= self.config.accuracy_threshold):
                     
@@ -405,7 +405,7 @@ class GreedyStrategySearcher:
                     current_mse = temp_mse
                     current_latency = temp_latency
                     improvements_made += 1
-                    break  # 找到改善就立即锁定，不再尝试该层的其他策略
+                    break  # Lock in improvement and stop for this layer
         
         print(f"Local refinement completed: {improvements_made} layers improved")
         
@@ -417,10 +417,10 @@ class GreedyStrategySearcher:
     
     def _get_more_aggressive_strategies(self, current_strategy: OptimizationStrategy, 
                                       available_strategies: List[OptimizationStrategy]) -> List[OptimizationStrategy]:
-        """获取比当前策略更激进的策略选项"""
+        """Get strategies that are more aggressive than the current one."""
         more_aggressive = []
         
-        # 定义激进程度排序
+        # Aggressiveness ordering
         aggressiveness_order = {
             StrategyType.ORIGINAL: 0,
             StrategyType.WEIGHT_QUANTIZATION: 1,
@@ -435,23 +435,23 @@ class GreedyStrategySearcher:
         for strategy in available_strategies:
             strategy_aggressiveness = aggressiveness_order.get(strategy.strategy_type, 0)
             
-            # 更激进的策略类型
+            # More aggressive strategy types
             if strategy_aggressiveness > current_aggressiveness:
                 more_aggressive.append(strategy)
             
-            # 同类型但参数更激进
+            # Same type but more aggressive parameters
             elif (strategy_aggressiveness == current_aggressiveness and 
                   self._is_more_aggressive_params(current_strategy, strategy)):
                 more_aggressive.append(strategy)
         
-        # 按预期加速比排序
+        # Sort by expected speedup
         more_aggressive.sort(key=lambda x: getattr(x, 'expected_speedup', 1.0), reverse=True)
         
         return more_aggressive
     
     def _is_more_aggressive_params(self, current: OptimizationStrategy, 
                                  candidate: OptimizationStrategy) -> bool:
-        """判断候选策略的参数是否比当前策略更激进"""
+        """Check if candidate parameters are more aggressive."""
         if current.strategy_type != candidate.strategy_type:
             return False
         
@@ -471,7 +471,7 @@ class GreedyStrategySearcher:
             return candidate_rank < current_rank
         
         elif current.strategy_type == StrategyType.MIXED:
-            # 混合策略的激进程度综合考虑rank和quantization
+            # Mixed strategies consider both rank and quantization
             current_rank = current.parameters.get("rank", float('inf'))
             current_bits = current.parameters.get("quantization_bits", 32)
             candidate_rank = candidate.parameters.get("rank", float('inf'))
@@ -484,37 +484,37 @@ class GreedyStrategySearcher:
 
 
 if __name__ == "__main__":
-    # 测试代码
+    # Test code
     from model_config import create_default_config
     from onnx_info_extractor import ONNXNodeInfoExtractor
     from strategy_generator import RVVAwareStrategyGenerator
     from mse_evaluator import MSEAccuracyEstimator
     
     try:
-        # 创建配置
+        # Create config
         config = create_default_config(
             onnx_path="test_model.onnx",
             layers_json_path="test_layers.json",
             input_shape=(1, 3, 224, 224)
         )
         
-        # 创建各个组件
+        # Create components
         extractor = ONNXNodeInfoExtractor(config)
         generator = RVVAwareStrategyGenerator(config.rvv_length)
         evaluator = MSEAccuracyEstimator(config)
         searcher = GreedyStrategySearcher(config, evaluator)
         
-        # 提取层信息
+        # Extract layer info
         layer_infos = extractor.extract_layer_info()
         
-        # 生成策略
+        # Generate strategies
         strategies_per_layer = {}
         for layer in layer_infos:
             strategies_per_layer[layer.name] = generator.generate_strategies(layer)
         
         print(f"Generated strategies for {len(layer_infos)} layers")
         
-        # 运行搜索（模拟）
+        # Run search (simulated)
         print("Starting strategy search...")
         # result = searcher.search_optimal_strategies(layer_infos, strategies_per_layer)
         # print(f"Search result: {result}")
