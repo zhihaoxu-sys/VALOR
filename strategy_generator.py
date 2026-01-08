@@ -1,6 +1,6 @@
 """
-策略生成模块
-基于RVV长度和层信息生成优化策略候选，包括量化策略和低秩分解策略
+Strategy generation module.
+Builds optimization strategy candidates based on RVV length and layer info.
 """
 
 import math
@@ -14,7 +14,7 @@ from onnx_info_extractor import LayerInfo
 
 
 class StrategyType(Enum):
-    """策略类型枚举"""
+    """Strategy type enum."""
     ORIGINAL = "original"
     WEIGHT_QUANTIZATION = "weight_quantization"
     ACTIVATION_QUANTIZATION = "activation_quantization"
@@ -25,7 +25,7 @@ class StrategyType(Enum):
 
 @dataclass
 class OptimizationStrategy:
-    """优化策略数据结构"""
+    """Optimization strategy data structure."""
     layer_name: str
     strategy_type: StrategyType
     parameters: Dict[str, Any]
@@ -37,27 +37,27 @@ class OptimizationStrategy:
 
 
 class RVVAwareStrategyGenerator:
-    """基于RVV的策略生成器"""
+    """RVV-aware strategy generator."""
     
     def __init__(self, rvv_length: int = 128):
         self.rvv_length = rvv_length
-        self.w = rvv_length // 32  # FP32情况下的向量元素数
+        self.w = rvv_length // 32  # Vector elements for FP32
         
-        # 量化策略配置
+        # Quantization strategy config
         self.weight_quantization_bits = [8, 4]
         self.activation_quantization_bits = [8]
         
-        # 低秩策略配置
+        # Low-rank strategy config
         self.rank_divisors = [4, 8]  # K/4, K/8
         self.min_rank = 32
         self.max_rank = 128
         self.rank_candidates = [32, 64, 128]
     
     def generate_strategies(self, layer_info: LayerInfo) -> List[OptimizationStrategy]:
-        """为指定层生成所有可用的优化策略"""
+        """Generate all available optimization strategies for a layer."""
         strategies = []
         
-        # 1. 原始策略（baseline）
+        # 1. Original strategy (baseline)
         strategies.append(OptimizationStrategy(
             layer_name=layer_info.name,
             strategy_type=StrategyType.ORIGINAL,
@@ -65,31 +65,31 @@ class RVVAwareStrategyGenerator:
             target="none"
         ))
         
-        # 2. 如果没有权重，直接返回原始策略
+        # 2. If no weights, return only the original strategy
         if not layer_info.has_weights or layer_info.weight_shape is None:
             return strategies
         
-        # 3. 生成量化策略
+        # 3. Quantization strategies
         strategies.extend(self._generate_quantization_strategies(layer_info))
 
-        # 4. 生成split construction策略（clogging节点）
+        # 4. Split-construction strategies (clogging nodes)
         strategies.extend(self._generate_split_strategies(layer_info))
 
-        # 5. 生成低秩分解策略（仅适用于某些层类型）
+        # 5. Low-rank strategies (certain layer types only)
         if self._supports_low_rank(layer_info):
             strategies.extend(self._generate_low_rank_strategies(layer_info))
 
-        # 6. 生成混合策略（低秩+量化）
+        # 6. Mixed strategies (low-rank + quantization)
         if self._supports_low_rank(layer_info):
             strategies.extend(self._generate_mixed_strategies(layer_info))
         
         return strategies
     
     def _generate_quantization_strategies(self, layer_info: LayerInfo) -> List[OptimizationStrategy]:
-        """生成量化策略"""
+        """Generate quantization strategies."""
         strategies = []
         
-        # 权重量化策略
+        # Weight quantization strategies
         for bits in self.weight_quantization_bits:
             strategies.append(OptimizationStrategy(
                 layer_name=layer_info.name,
@@ -103,7 +103,7 @@ class RVVAwareStrategyGenerator:
                 expected_speedup=self._estimate_quantization_speedup(bits)
             ))
         
-        # 激活量化策略（仅对支持的层类型）
+        # Activation quantization strategies (supported ops only)
         if layer_info.op_type in ["Conv", "MatMul", "Gemm"]:
             for bits in self.activation_quantization_bits:
                 strategies.append(OptimizationStrategy(
@@ -121,7 +121,7 @@ class RVVAwareStrategyGenerator:
         return strategies
 
     def _generate_split_strategies(self, layer_info: LayerInfo) -> List[OptimizationStrategy]:
-        """生成split construction策略"""
+        """Generate split-construction strategies."""
         if layer_info.op_type not in ["MatMul", "Gemm"]:
             return []
         if not layer_info.weight_shape or len(layer_info.weight_shape) < 2:
@@ -159,11 +159,11 @@ class RVVAwareStrategyGenerator:
         return strategies
     
     def _generate_low_rank_strategies(self, layer_info: LayerInfo) -> List[OptimizationStrategy]:
-        """生成低秋分解策略"""
+        """Generate low-rank decomposition strategies."""
         strategies = []
         weight_shape = layer_info.weight_shape
         
-        # 计算合适的rank值
+        # Compute candidate ranks
         valid_ranks = self._calculate_valid_ranks(weight_shape, layer_info.op_type)
         
         for rank in valid_ranks:
@@ -181,14 +181,14 @@ class RVVAwareStrategyGenerator:
         return strategies
     
     def _generate_mixed_strategies(self, layer_info: LayerInfo) -> List[OptimizationStrategy]:
-        """生成混合策略（低秋+量化）"""
+        """Generate mixed strategies (low-rank + quantization)."""
         strategies = []
         weight_shape = layer_info.weight_shape
         
-        # 获取有效的rank值
+        # Get valid ranks
         valid_ranks = self._calculate_valid_ranks(weight_shape, layer_info.op_type)
         
-        # 混合策略：低秋分解 + 权重量化
+        # Mixed strategies: low-rank + weight quantization
         for rank in valid_ranks:
             for bits in self.weight_quantization_bits:
                 strategies.append(OptimizationStrategy(
@@ -198,7 +198,7 @@ class RVVAwareStrategyGenerator:
                         "rank": rank,
                         "quantization_bits": bits,
                         "quantization_type": "symmetric",
-                        "per_channel": False  # 混合策略中使用per-tensor量化
+                        "per_channel": False  # Use per-tensor quantization in mixed strategies
                     },
                     target="weight",
                     expected_speedup=self._estimate_mixed_speedup(weight_shape, rank, bits)
@@ -207,47 +207,47 @@ class RVVAwareStrategyGenerator:
         return strategies
     
     def _supports_low_rank(self, layer_info: LayerInfo) -> bool:
-        """判断层是否支持低秋分解"""
-        # 支持低秋分解的层类型
+        """Check whether the layer supports low-rank decomposition."""
+        # Supported ops for low-rank decomposition
         supported_ops = ["Conv", "MatMul", "Gemm"]
         if layer_info.op_type not in supported_ops:
             return False
         
-        # 检查权重shape是否适合低秋分解
+        # Check weight shape suitability
         weight_shape = layer_info.weight_shape
         if not weight_shape or len(weight_shape) < 2:
             return False
         
-        # 获取矩阵维度K（用于判断是否适合RVV优化）
+        # Get matrix dimensions for RVV rules
         K, M = self._get_matrix_dimensions(weight_shape, layer_info.op_type)
         
-        # 按照你的规则：如果max(K,M) < 4*w 或 K % w == 0，优先量化；否则考虑低秋
+        # Rule: if max(K, M) < 4*w or K % w == 0, prefer quantization
         if max(K, M) < 4 * self.w or K % self.w == 0:
-            return False  # 这种情况更适合量化
+            return False  # Prefer quantization in this case
         
-        # 检查矩阵是否足够大，值得做低秋分解
+        # Check if matrix is large enough to decompose
         min_size_for_decomposition = 64
         return min(K, M) >= min_size_for_decomposition
     
     def _get_matrix_dimensions(self, weight_shape: Tuple[int, ...], op_type: str) -> Tuple[int, int]:
-        """获取权重矩阵的K和M维度"""
+        """Get matrix K and M dimensions."""
         if op_type == "Conv":
-            # Conv权重: (out_c, in_c, h, w)
+            # Conv weights: (out_c, in_c, h, w)
             out_c, in_c, h, w = weight_shape
-            K = in_c * h * w  # 卷积核"长度"
+            K = in_c * h * w  # Kernel length
             M = out_c
         elif op_type in ["MatMul", "Gemm"]:
-            # 全连接权重: (out_dim, in_dim) 或 (in_dim, out_dim)
-            # 这里假设是(out_dim, in_dim)格式
+            # FC weights: (out_dim, in_dim) or (in_dim, out_dim)
+            # Assume (out_dim, in_dim)
             M, K = weight_shape
         else:
-            # 其他情况的fallback
+            # Fallback
             K, M = weight_shape[-1], weight_shape[0]
         
         return K, M
 
     def _calculate_d_mid_upper_bound(self, K: int, M: int, eta: int) -> int:
-        """计算满足CL<0的d_mid上界"""
+        """Compute d_mid upper bound that keeps CL<0."""
         if eta <= 0:
             return 0
 
@@ -261,21 +261,21 @@ class RVVAwareStrategyGenerator:
         return (upper_int // eta) * eta
 
     def _calculate_clogging_level(self, K: int, M: int, d_mid: int, eta: int) -> float:
-        """计算clogging level (I(G') - I(G))"""
+        """Compute clogging level (I(G') - I(G))."""
         original = self._instruction_count(K, M, eta)
         split = self._split_instruction_count(K, M, d_mid, eta)
         return split - original
 
     def _instruction_count(self, K: int, M: int, eta: int) -> int:
-        """估算指令数（基于tail近似模型）"""
+        """Estimate instruction count with the tail approximation."""
         return M * math.ceil(K / eta)
 
     def _split_instruction_count(self, K: int, M: int, d_mid: int, eta: int) -> int:
-        """估算split后的指令数（两段矩阵乘）"""
+        """Estimate instruction count for the split path."""
         return (d_mid * math.ceil(K / eta)) + (M * math.ceil(d_mid / eta))
 
     def _estimate_split_speedup(self, K: int, M: int, d_mid: int, eta: int) -> float:
-        """估算split策略的加速比"""
+        """Estimate speedup for split strategy."""
         original = self._instruction_count(K, M, eta)
         split = self._split_instruction_count(K, M, d_mid, eta)
         if split <= 0:
@@ -283,69 +283,69 @@ class RVVAwareStrategyGenerator:
         return min(original / split, 5.0)
     
     def _calculate_valid_ranks(self, weight_shape: Tuple[int, ...], op_type: str) -> List[int]:
-        """计算有效的rank值"""
+        """Compute valid rank values."""
         K, M = self._get_matrix_dimensions(weight_shape, op_type)
         
         valid_ranks = []
         
-        # 基于K的分数计算候选rank
+        # Candidate ranks based on K divisors
         for divisor in self.rank_divisors:
             candidate_rank = K // divisor
             
-            # 向下取整到预定义的rank候选
+            # Round down to predefined rank candidates
             for rank in sorted(self.rank_candidates):
                 if rank <= candidate_rank:
                     if rank not in valid_ranks:
                         valid_ranks.append(rank)
                     break
         
-        # 过滤有效范围
+        # Filter to valid range
         valid_ranks = [r for r in valid_ranks 
                       if self.min_rank <= r <= min(self.max_rank, min(K, M) // 2)]
         
-        return sorted(valid_ranks, reverse=True)  # 从大到小排序
+        return sorted(valid_ranks, reverse=True)  # Descending order
     
     def _estimate_quantization_speedup(self, bits: int, is_activation: bool = False) -> float:
-        """估算量化策略的加速比"""
+        """Estimate speedup for quantization."""
         if is_activation:
-            # 激活量化的加速比相对保守
+            # Activation quantization speedups are conservative
             return {8: 1.2, 4: 1.8}.get(bits, 1.0)
         else:
-            # 权重量化的加速比
+            # Weight quantization speedups
             return {8: 1.5, 4: 2.5}.get(bits, 1.0)
     
     def _estimate_low_rank_speedup(self, weight_shape: Tuple[int, ...], rank: int) -> float:
-        """估算低秋分解的加速比"""
+        """Estimate speedup for low-rank decomposition."""
         if len(weight_shape) < 2:
             return 1.0
         
-        # 计算压缩比
+        # Compression ratio
         original_ops = np.prod(weight_shape)
-        if len(weight_shape) == 4:  # Conv层
+        if len(weight_shape) == 4:  # Conv layer
             out_c, in_c, h, w = weight_shape
             compressed_ops = (in_c * h * w * rank) + (rank * out_c)
-        else:  # FC层
+        else:  # FC layer
             M, K = weight_shape
             compressed_ops = (K * rank) + (rank * M)
         
         compression_ratio = original_ops / compressed_ops
         
-        # 考虑RVV的额外加速
+        # RVV alignment bonus
         rvv_bonus = 1.2 if rank % self.w == 0 else 1.0
         
-        return min(compression_ratio * rvv_bonus, 5.0)  # 限制最大加速比
+        return min(compression_ratio * rvv_bonus, 5.0)  # Cap max speedup
     
     def _estimate_mixed_speedup(self, weight_shape: Tuple[int, ...], rank: int, bits: int) -> float:
-        """估算混合策略的加速比"""
+        """Estimate speedup for mixed strategies."""
         low_rank_speedup = self._estimate_low_rank_speedup(weight_shape, rank)
         quant_speedup = self._estimate_quantization_speedup(bits)
         
-        # 混合策略的加速比不是简单相乘，而是有一定的效率损失
+        # Mixed speedup includes an efficiency penalty
         efficiency_factor = 0.8
         return low_rank_speedup * quant_speedup * efficiency_factor
     
     def get_strategy_compatibility_matrix(self, layer_infos: List[LayerInfo]) -> Dict[str, List[str]]:
-        """获取策略兼容性矩阵，用于搜索时的预过滤"""
+        """Build strategy compatibility matrix for pre-filtering."""
         compatibility = {}
         
         for layer_info in layer_infos:
@@ -357,8 +357,8 @@ class RVVAwareStrategyGenerator:
     
     def filter_strategies_by_budget(self, strategies: List[OptimizationStrategy], 
                                    layer_budget: float) -> List[OptimizationStrategy]:
-        """根据层预算过滤策略（这里是预估，实际精度损失需要MSE评估）"""
-        # 简单的启发式过滤：更激进的策略预估精度损失更大
+        """Filter strategies by per-layer budget (heuristic)."""
+        # Simple heuristic: more aggressive strategies have larger risk
         strategy_risk_scores = {
             StrategyType.ORIGINAL: 0.0,
             StrategyType.WEIGHT_QUANTIZATION: 0.3,
@@ -372,25 +372,25 @@ class RVVAwareStrategyGenerator:
         for strategy in strategies:
             base_risk = strategy_risk_scores[strategy.strategy_type]
             
-            # 根据参数调整风险分数
+            # Adjust risk by parameters
             if strategy.strategy_type == StrategyType.WEIGHT_QUANTIZATION:
                 bits = strategy.parameters.get("bits", 8)
                 risk = base_risk * (8 / bits)
             elif strategy.strategy_type in [StrategyType.LOW_RANK, StrategyType.SPLIT_CONSTRUCTION]:
-                # rank越小风险越大（这里需要更复杂的计算，暂时简化）
+                # Smaller ranks imply higher risk (simplified)
                 risk = base_risk
             else:
                 risk = base_risk
             
-            # 如果预估风险在预算范围内，保留该策略
-            if risk <= layer_budget * 10:  # 10是放大系数，避免过度保守
+            # Keep strategy if risk is within budget
+            if risk <= layer_budget * 10:  # Scale factor to avoid over-conservatism
                 filtered.append(strategy)
         
         return filtered
 
 
 def create_strategy_summary(strategies: List[OptimizationStrategy]) -> Dict[str, Any]:
-    """创建策略摘要信息"""
+    """Create a strategy summary."""
     summary = {
         "total_strategies": len(strategies),
         "by_type": {},
@@ -400,15 +400,15 @@ def create_strategy_summary(strategies: List[OptimizationStrategy]) -> Dict[str,
     
     speedups = []
     for strategy in strategies:
-        # 按类型统计
+        # Count by type
         type_name = strategy.strategy_type.value
         summary["by_type"][type_name] = summary["by_type"].get(type_name, 0) + 1
         
-        # 按目标统计
+        # Count by target
         target = strategy.target
         summary["by_target"][target] = summary["by_target"].get(target, 0) + 1
         
-        # 收集加速比
+        # Collect speedups
         speedups.append(strategy.expected_speedup)
     
     if speedups:
@@ -418,10 +418,10 @@ def create_strategy_summary(strategies: List[OptimizationStrategy]) -> Dict[str,
 
 
 if __name__ == "__main__":
-    # 测试代码
+    # Test code
     from onnx_info_extractor import LayerInfo
     
-    # 创建测试层信息
+    # Build a test layer
     test_layer = LayerInfo(
         name="test_conv",
         onnx_node_name="Conv_1",
@@ -432,16 +432,16 @@ if __name__ == "__main__":
         original_latency_ms=50.0
     )
     
-    # 创建策略生成器
+    # Create strategy generator
     generator = RVVAwareStrategyGenerator(rvv_length=128)
     
-    # 生成策略
+    # Generate strategies
     strategies = generator.generate_strategies(test_layer)
     
     print(f"Generated {len(strategies)} strategies for {test_layer.name}")
     for i, strategy in enumerate(strategies):
         print(f"{i+1}. {strategy}")
     
-    # 创建策略摘要
+    # Build strategy summary
     summary = create_strategy_summary(strategies)
     print(f"\nStrategy summary: {summary}")

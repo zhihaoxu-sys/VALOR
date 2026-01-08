@@ -1,6 +1,6 @@
 """
-数据结构定义模块
-定义所有模块间共享的数据结构、枚举类型和工具函数
+Data structure definitions.
+Shared enums, structs, and helpers across modules.
 """
 
 from dataclasses import dataclass, field
@@ -12,11 +12,11 @@ import time
 
 
 # =============================================================================
-# 枚举类型定义
+# Enum definitions
 # =============================================================================
 
 class StrategyType(Enum):
-    """优化策略类型枚举"""
+    """Optimization strategy types."""
     ORIGINAL = "original"
     WEIGHT_QUANTIZATION = "weight_quantization"
     ACTIVATION_QUANTIZATION = "activation_quantization"
@@ -26,26 +26,26 @@ class StrategyType(Enum):
 
 
 class QuantizationType(Enum):
-    """量化类型枚举"""
+    """Quantization types."""
     SYMMETRIC = "symmetric"
     ASYMMETRIC = "asymmetric"
 
 
 class QuantizationGranularity(Enum):
-    """量化粒度枚举"""
+    """Quantization granularity."""
     PER_TENSOR = "per_tensor"
     PER_CHANNEL = "per_channel"
 
 
 class DecompositionMethod(Enum):
-    """分解方法枚举"""
+    """Decomposition methods."""
     SVD = "svd"
     NMF = "nmf"
     TUCKER = "tucker"
 
 
 class OptimizationStatus(Enum):
-    """优化状态枚举"""
+    """Optimization status."""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -54,12 +54,12 @@ class OptimizationStatus(Enum):
 
 
 # =============================================================================
-# 核心数据结构
+# Core data structures
 # =============================================================================
 
 @dataclass
 class LayerInfo:
-    """层信息数据结构"""
+    """Layer info data structure."""
     name: str
     onnx_node_name: str
     op_type: str
@@ -72,7 +72,7 @@ class LayerInfo:
     layer_index: int = 0
     
     def __post_init__(self):
-        """数据验证"""
+        """Validate data."""
         if self.mac_count < 0:
             raise ValueError(f"MAC count cannot be negative: {self.mac_count}")
         if self.original_latency_ms < 0:
@@ -80,18 +80,18 @@ class LayerInfo:
     
     @property
     def weight_size(self) -> int:
-        """权重参数数量"""
+        """Number of weight parameters."""
         if self.weight_shape:
             return np.prod(self.weight_shape)
         return 0
     
     @property
     def complexity_score(self) -> float:
-        """层复杂度评分（用于排序和预算分配）"""
+        """Layer complexity score for sorting and budgeting."""
         return self.mac_count * self.original_latency_ms
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to a dictionary."""
         return {
             "name": self.name,
             "onnx_node_name": self.onnx_node_name,
@@ -109,7 +109,7 @@ class LayerInfo:
 
 @dataclass
 class OptimizationStrategy:
-    """优化策略数据结构"""
+    """Optimization strategy data structure."""
     layer_name: str
     strategy_type: StrategyType
     parameters: Dict[str, Any]
@@ -120,23 +120,23 @@ class OptimizationStrategy:
     strategy_id: str = field(default="")
     
     def __post_init__(self):
-        """生成策略ID和验证"""
+        """Generate a strategy ID and validate."""
         if not self.strategy_id:
             self.strategy_id = self._generate_strategy_id()
         
-        # 参数验证
+        # Parameter validation
         if self.expected_speedup <= 0:
             raise ValueError(f"Expected speedup must be positive: {self.expected_speedup}")
         if self.estimated_accuracy_loss < 0:
             raise ValueError(f"Accuracy loss cannot be negative: {self.estimated_accuracy_loss}")
     
     def _generate_strategy_id(self) -> str:
-        """生成唯一的策略ID"""
+        """Generate a unique strategy ID."""
         params_str = "_".join(f"{k}={v}" for k, v in sorted(self.parameters.items()))
         return f"{self.layer_name}_{self.strategy_type.value}_{self.target}_{hash(params_str) % 10000:04d}"
     
     def get_quantization_info(self) -> Optional[Dict[str, Any]]:
-        """获取量化相关信息"""
+        """Get quantization info."""
         if self.strategy_type in [StrategyType.WEIGHT_QUANTIZATION, 
                                 StrategyType.ACTIVATION_QUANTIZATION, 
                                 StrategyType.MIXED]:
@@ -148,7 +148,9 @@ class OptimizationStrategy:
         return None
     
     def get_low_rank_info(self) -> Optional[Dict[str, Any]]:
-        """获取低秋分解相关信息"""
+      
+        """Get low-rank decomposition info."""
+
         if self.strategy_type in [StrategyType.LOW_RANK, StrategyType.SPLIT_CONSTRUCTION, StrategyType.MIXED]:
             return {
                 "rank": self.parameters.get("rank", self.parameters.get("d_mid", None)),
@@ -157,7 +159,7 @@ class OptimizationStrategy:
         return None
     
     def calculate_compression_ratio(self, original_weight_shape: Tuple[int, ...]) -> float:
-        """计算压缩比"""
+        """Compute compression ratio."""
         if not original_weight_shape:
             return 1.0
         
@@ -189,7 +191,7 @@ class OptimizationStrategy:
             return 1.0
         
         elif self.strategy_type == StrategyType.MIXED:
-            # 综合考虑低秋和量化的压缩比
+            # Combine low-rank and quantization ratios
             low_rank_ratio = self.calculate_compression_ratio(original_weight_shape)
             quant_bits = self.parameters.get("quantization_bits", 32)
             quant_ratio = 32.0 / quant_bits
@@ -198,7 +200,7 @@ class OptimizationStrategy:
         return 1.0
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to a dictionary."""
         return {
             "strategy_id": self.strategy_id,
             "layer_name": self.layer_name,
@@ -218,7 +220,7 @@ class OptimizationStrategy:
 
 @dataclass
 class SearchResult:
-    """搜索结果数据结构"""
+    """Search result data structure."""
     strategies: List[OptimizationStrategy]
     accuracy_loss: float
     estimated_latency_improvement: float
@@ -228,7 +230,7 @@ class SearchResult:
     convergence_info: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
-        """验证搜索结果"""
+        """Validate search results."""
         if self.accuracy_loss < 0:
             raise ValueError(f"Accuracy loss cannot be negative: {self.accuracy_loss}")
         if self.estimated_latency_improvement <= 0:
@@ -238,7 +240,7 @@ class SearchResult:
     
     @property
     def total_expected_speedup(self) -> float:
-        """计算总预期加速比"""
+        """Compute total expected speedup."""
         total_speedup = 1.0
         for strategy in self.strategies:
             if strategy.strategy_type != StrategyType.ORIGINAL:
@@ -247,13 +249,13 @@ class SearchResult:
     
     @property
     def optimization_efficiency(self) -> float:
-        """优化效率：加速比/精度损失比值"""
+        """Optimization efficiency: speedup / accuracy loss."""
         if self.accuracy_loss == 0:
             return float('inf') if self.estimated_latency_improvement > 1.0 else 1.0
         return self.estimated_latency_improvement / self.accuracy_loss
     
     def get_strategy_distribution(self) -> Dict[str, int]:
-        """获取策略类型分布"""
+        """Get strategy type distribution."""
         distribution = {}
         for strategy in self.strategies:
             strategy_type = strategy.strategy_type.value
@@ -261,7 +263,7 @@ class SearchResult:
         return distribution
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to a dictionary."""
         return {
             "strategies": [strategy.to_dict() for strategy in self.strategies],
             "accuracy_loss": self.accuracy_loss,
@@ -278,7 +280,7 @@ class SearchResult:
 
 @dataclass
 class OptimizationResult:
-    """最终优化结果数据结构"""
+    """Final optimization result data structure."""
     original_model_path: str
     optimized_model_path: str
     optimization_config: Dict[str, Any]
@@ -289,23 +291,23 @@ class OptimizationResult:
     optimization_id: str = field(default="")
     
     def __post_init__(self):
-        """生成优化ID"""
+        """Generate optimization ID."""
         if not self.optimization_id:
             timestamp = int(time.time())
             self.optimization_id = f"opt_{timestamp}_{hash(self.original_model_path) % 10000:04d}"
     
     @property
     def success(self) -> bool:
-        """优化是否成功"""
+        """Whether optimization succeeded."""
         return len(self.warnings) == 0 and self.search_result.accuracy_loss >= 0
     
     @property
     def total_time(self) -> float:
-        """总优化时间"""
+        """Total optimization time."""
         return sum(self.timing_breakdown.values())
     
     def get_summary(self) -> Dict[str, Any]:
-        """获取优化摘要"""
+        """Get optimization summary."""
         return {
             "optimization_id": self.optimization_id,
             "success": self.success,
@@ -320,7 +322,7 @@ class OptimizationResult:
         }
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为完整字典"""
+        """Convert to a full dictionary."""
         return {
             "optimization_id": self.optimization_id,
             "original_model_path": self.original_model_path,
@@ -335,18 +337,18 @@ class OptimizationResult:
         }
     
     def save_to_json(self, file_path: str):
-        """保存到JSON文件"""
+        """Save to JSON."""
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
 
 # =============================================================================
-# 工具数据结构
+# Utility data structures
 # =============================================================================
 
 @dataclass
 class BudgetAllocation:
-    """预算分配数据结构"""
+    """Budget allocation data structure."""
     layer_name: str
     allocated_budget: float
     used_budget: float
@@ -355,17 +357,17 @@ class BudgetAllocation:
     
     @property
     def budget_utilization(self) -> float:
-        """预算利用率"""
+        """Budget utilization."""
         if self.allocated_budget == 0:
             return 0.0
         return self.used_budget / self.allocated_budget
     
     def can_afford(self, cost: float) -> bool:
-        """是否可以承担指定成本"""
+        """Whether the cost can be afforded."""
         return self.remaining_budget >= cost
     
     def spend_budget(self, amount: float) -> bool:
-        """花费预算"""
+        """Spend budget."""
         if self.can_afford(amount):
             self.used_budget += amount
             self.remaining_budget -= amount
@@ -375,7 +377,7 @@ class BudgetAllocation:
 
 @dataclass
 class PerformanceMetrics:
-    """性能指标数据结构"""
+    """Performance metrics data structure."""
     accuracy_loss: float
     latency_improvement: float
     memory_reduction: float
@@ -384,7 +386,7 @@ class PerformanceMetrics:
     energy_reduction: float = 0.0
     
     def __post_init__(self):
-        """验证指标"""
+        """Validate metrics."""
         if self.accuracy_loss < 0:
             raise ValueError("Accuracy loss cannot be negative")
         if self.latency_improvement <= 0:
@@ -392,15 +394,15 @@ class PerformanceMetrics:
     
     @property
     def overall_score(self) -> float:
-        """综合评分"""
-        # 简单的加权评分公式
+        """Composite score."""
+        # Simple weighted scoring formula
         return (self.latency_improvement * 0.4 + 
                 (1 + self.memory_reduction) * 0.3 + 
                 (1 + self.model_size_reduction) * 0.2 + 
                 (1 - self.accuracy_loss) * 0.1)
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to a dictionary."""
         return {
             "accuracy_loss": self.accuracy_loss,
             "latency_improvement": self.latency_improvement,
@@ -414,28 +416,28 @@ class PerformanceMetrics:
 
 @dataclass
 class ValidationResult:
-    """验证结果数据结构"""
+    """Validation result data structure."""
     is_valid: bool
     error_message: str = ""
     warnings: List[str] = field(default_factory=list)
     validation_details: Dict[str, Any] = field(default_factory=dict)
     
     def add_warning(self, warning: str):
-        """添加警告"""
+        """Add a warning."""
         self.warnings.append(warning)
     
     def set_error(self, error: str):
-        """设置错误"""
+        """Set error."""
         self.is_valid = False
         self.error_message = error
 
 
 # =============================================================================
-# 工具函数
+# Utility functions
 # =============================================================================
 
 def create_original_strategy(layer_name: str) -> OptimizationStrategy:
-    """创建原始策略（不优化）"""
+    """Create an original strategy (no optimization)."""
     return OptimizationStrategy(
         layer_name=layer_name,
         strategy_type=StrategyType.ORIGINAL,
@@ -449,7 +451,7 @@ def create_original_strategy(layer_name: str) -> OptimizationStrategy:
 def create_weight_quantization_strategy(layer_name: str, bits: int, 
                                       quantization_type: str = "symmetric",
                                       per_channel: bool = False) -> OptimizationStrategy:
-    """创建权重量化策略"""
+    """Create a weight quantization strategy."""
     return OptimizationStrategy(
         layer_name=layer_name,
         strategy_type=StrategyType.WEIGHT_QUANTIZATION,
@@ -459,14 +461,14 @@ def create_weight_quantization_strategy(layer_name: str, bits: int,
             "per_channel": per_channel
         },
         target="weight",
-        expected_speedup=32.0 / bits,  # 简单估算
+        expected_speedup=32.0 / bits,  # Simple estimate
         estimated_accuracy_loss=0.01 * (8 - bits) if bits < 8 else 0.005
     )
 
 
 def create_low_rank_strategy(layer_name: str, rank: int, 
                            decomposition_method: str = "svd") -> OptimizationStrategy:
-    """创建低秩分解策略"""
+    """Create a low-rank strategy."""
     return OptimizationStrategy(
         layer_name=layer_name,
         strategy_type=StrategyType.LOW_RANK,
@@ -475,13 +477,13 @@ def create_low_rank_strategy(layer_name: str, rank: int,
             "decomposition_method": decomposition_method
         },
         target="weight",
-        expected_speedup=2.0,  # 需要根据实际情况计算
+        expected_speedup=2.0,  # Placeholder estimate
         estimated_accuracy_loss=0.005 + (1.0 / rank) * 0.01
     )
 
 
 def create_mixed_strategy(layer_name: str, rank: int, quantization_bits: int) -> OptimizationStrategy:
-    """创建混合策略（低秋+量化）"""
+    """Create a mixed strategy (low-rank + quantization)."""
     return OptimizationStrategy(
         layer_name=layer_name,
         strategy_type=StrategyType.MIXED,
@@ -499,23 +501,23 @@ def create_mixed_strategy(layer_name: str, rank: int, quantization_bits: int) ->
 
 def validate_strategy_compatibility(strategy: OptimizationStrategy, 
                                   layer_info: LayerInfo) -> ValidationResult:
-    """验证策略与层的兼容性"""
+    """Validate strategy compatibility with a layer."""
     result = ValidationResult(is_valid=True)
     
-    # 检查是否有权重
+    # Check weight presence
     if (strategy.strategy_type != StrategyType.ORIGINAL and 
         strategy.target in ["weight", "both"] and 
         not layer_info.has_weights):
         result.set_error(f"Strategy {strategy.strategy_type.value} requires weights but layer {layer_info.name} has none")
         return result
     
-    # 检查量化参数
+    # Check quantization parameters
     if strategy.strategy_type in [StrategyType.WEIGHT_QUANTIZATION, StrategyType.ACTIVATION_QUANTIZATION]:
         bits = strategy.parameters.get("bits", 32)
         if bits not in [4, 8, 16, 32]:
             result.add_warning(f"Unusual quantization bits: {bits}")
     
-    # 检查低秋参数
+    # Check low-rank parameters
     if strategy.strategy_type in [StrategyType.LOW_RANK, StrategyType.MIXED]:
         rank = strategy.parameters.get("rank")
         if rank and layer_info.weight_shape:
@@ -529,24 +531,24 @@ def validate_strategy_compatibility(strategy: OptimizationStrategy,
 
 def calculate_total_performance_impact(strategies: List[OptimizationStrategy], 
                                      layer_infos: List[LayerInfo]) -> PerformanceMetrics:
-    """计算策略组合的总体性能影响"""
+    """Calculate overall performance impact for strategies."""
     total_latency_improvement = 1.0
     total_accuracy_loss = 0.0
     total_memory_reduction = 0.0
     total_size_reduction = 0.0
     
-    # 创建层信息映射
+    # Build layer info mapping
     layer_map = {layer.name: layer for layer in layer_infos}
     
     for strategy in strategies:
         if strategy.strategy_type == StrategyType.ORIGINAL:
             continue
         
-        # 累积性能影响
+        # Accumulate performance impact
         total_latency_improvement *= strategy.expected_speedup
         total_accuracy_loss += strategy.estimated_accuracy_loss
         
-        # 计算内存和模型大小影响
+        # Compute memory and model size impact
         if strategy.layer_name in layer_map:
             layer = layer_map[strategy.layer_name]
             if layer.weight_shape:
@@ -565,50 +567,50 @@ def calculate_total_performance_impact(strategies: List[OptimizationStrategy],
 
 
 # =============================================================================
-# 常量定义
+# Constant definitions
 # =============================================================================
 
 class OptimizationConstants:
-    """优化相关常量"""
+    """Optimization-related constants."""
     
-    # 默认配置
+    # Default config
     DEFAULT_RVV_LENGTH = 128
     DEFAULT_ACCURACY_THRESHOLD = 0.01
     DEFAULT_CALIBRATION_SAMPLES = 32
     
-    # 量化配置
+    # Quantization config
     SUPPORTED_QUANTIZATION_BITS = [4, 8]
     DEFAULT_QUANTIZATION_BITS = 8
     
-    # 低秋配置
+    # Low-rank config
     DEFAULT_RANK_CANDIDATES = [32, 64, 128]
     MIN_RANK = 16
     MAX_RANK = 256
     
-    # 搜索配置
+    # Search config
     DEFAULT_BOHB_TRIALS = 300
     DEFAULT_EARLY_STOP_MULTIPLIER = 1.2
     SAMPLE_PROGRESSION = [2, 4, 8, 16, 32]
     
-    # 性能配置
+    # Performance config
     LATENCY_MEASUREMENT_WARMUP = 3
     LATENCY_MEASUREMENT_RUNS = 20
     
-    # 文件扩展名
+    # File extensions
     ONNX_EXTENSION = ".onnx"
     REPORT_EXTENSION = ".json"
     
-    # 支持的层类型
+    # Supported layer types
     SUPPORTED_CONV_TYPES = ["Conv", "ConvTranspose"]
     SUPPORTED_LINEAR_TYPES = ["MatMul", "Gemm"]
     SUPPORTED_ACTIVATION_TYPES = ["Relu", "Sigmoid", "Tanh"]
 
 
 if __name__ == "__main__":
-    # 测试数据结构
+    # Test data structures
     print("Testing data structures...")
     
-    # 测试LayerInfo
+    # Test LayerInfo
     layer = LayerInfo(
         name="test_conv",
         onnx_node_name="Conv_1",
@@ -620,15 +622,15 @@ if __name__ == "__main__":
     )
     print(f"Layer info: {layer.to_dict()}")
     
-    # 测试OptimizationStrategy
+    # Test OptimizationStrategy
     strategy = create_weight_quantization_strategy("test_conv", 8, per_channel=True)
     print(f"Strategy: {strategy.to_dict()}")
     
-    # 测试兼容性验证
+    # Test compatibility validation
     validation = validate_strategy_compatibility(strategy, layer)
     print(f"Validation: valid={validation.is_valid}, warnings={validation.warnings}")
     
-    # 测试性能计算
+    # Test performance calculation
     strategies = [strategy]
     layers = [layer]
     metrics = calculate_total_performance_impact(strategies, layers)

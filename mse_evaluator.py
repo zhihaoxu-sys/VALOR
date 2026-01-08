@@ -1,6 +1,6 @@
 """
-MSE精度评估模块
-负责将策略应用到ONNX模型并评估精度损失
+MSE accuracy evaluation module.
+Applies strategies to ONNX models and evaluates accuracy loss.
 """
 
 import os
@@ -19,7 +19,7 @@ from strategy_generator import OptimizationStrategy, StrategyType
 
 
 class MSEAccuracyEstimator:
-    """MSE精度评估器"""
+    """MSE accuracy estimator."""
     
     def __init__(self, config: ModelConfig):
         self.config = config
@@ -29,26 +29,26 @@ class MSEAccuracyEstimator:
         self._measurement_count = 20
     
     def apply_strategies_to_onnx(self, strategies: List[OptimizationStrategy]) -> onnx.ModelProto:
-        """将策略列表应用到ONNX模型"""
-        # 深拷贝原始模型
+        """Apply a list of strategies to an ONNX model."""
+        # Deep copy the original model
         modified_model = copy.deepcopy(self.original_model)
         
-        # 按策略逐层应用
+        # Apply per-strategy
         for strategy in strategies:
             if strategy.strategy_type == StrategyType.ORIGINAL:
-                continue  # 跳过原始策略
+                continue  # Skip original strategy
             
             try:
                 modified_model = self._apply_single_strategy(modified_model, strategy)
             except Exception as e:
                 print(f"Warning: Failed to apply strategy {strategy} to layer {strategy.layer_name}: {e}")
-                # 策略应用失败时，保持原始状态
+                # Keep original state if strategy application fails
                 continue
         
         return modified_model
     
     def _apply_single_strategy(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用单个策略到模型"""
+        """Apply a single strategy to the model."""
         if strategy.strategy_type == StrategyType.WEIGHT_QUANTIZATION:
             return self._apply_weight_quantization(model, strategy)
         elif strategy.strategy_type == StrategyType.ACTIVATION_QUANTIZATION:
@@ -63,8 +63,8 @@ class MSEAccuracyEstimator:
             return model
     
     def _apply_weight_quantization(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用权重量化策略"""
-        # 找到目标节点对应的权重
+        """Apply weight quantization."""
+        # Find target node weights
         target_node = self._find_node_by_strategy(model, strategy)
         if not target_node:
             return model
@@ -73,12 +73,12 @@ class MSEAccuracyEstimator:
         if not weight_name:
             return model
         
-        # 获取权重数据
+        # Fetch weight data
         weight_data = self._get_weight_data(model, weight_name)
         if weight_data is None:
             return model
         
-        # 执行量化
+        # Quantize
         bits = strategy.parameters["bits"]
         quantization_type = strategy.parameters.get("quantization_type", "symmetric")
         per_channel = strategy.parameters.get("per_channel", False)
@@ -88,15 +88,15 @@ class MSEAccuracyEstimator:
         else:
             quantized_weight = self._asymmetric_quantize(weight_data, bits)
         
-        # 更新模型中的权重
+        # Update model weights
         self._update_weight_in_model(model, weight_name, quantized_weight)
         
         return model
     
     def _apply_activation_quantization(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用激活量化策略"""
-        # 激活量化需要插入QuantizeLinear/DequantizeLinear节点
-        # 这里实现简化版本：在目标节点后插入量化节点
+        """Apply activation quantization."""
+        # Activation quantization requires inserting QuantizeLinear/DequantizeLinear.
+        # This is a simplified placeholder that inserts after the target node.
         
         target_node = self._find_node_by_strategy(model, strategy)
         if not target_node:
@@ -104,17 +104,17 @@ class MSEAccuracyEstimator:
         
         bits = strategy.parameters["bits"]
         
-        # 生成量化参数（简化：使用固定的scale和zero_point）
-        scale = 0.1  # 实际应用中需要通过校准数据计算
+        # Build quantization params (simplified fixed scale/zero_point)
+        scale = 0.1  # Should be computed from calibration data in practice
         zero_point = 128 if bits == 8 else 8
         
-        # 插入量化/反量化节点
+        # Insert quant/dequant nodes
         self._insert_quantization_nodes(model, target_node, scale, zero_point, bits)
         
         return model
     
     def _apply_low_rank_decomposition(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用低秋分解策略"""
+        """Apply low-rank decomposition."""
         target_node = self._find_node_by_strategy(model, strategy)
         if not target_node:
             return model
@@ -129,16 +129,17 @@ class MSEAccuracyEstimator:
         
         rank = strategy.parameters["rank"]
         
-        # 执行SVD分解
+        # Run SVD decomposition
         U, V = self._svd_decompose_weight(weight_data, rank, target_node.op_type)
         
-        # 替换原始节点为两个矩阵乘法节点
+        # Replace node with two MatMul nodes
         self._replace_with_low_rank_nodes(model, target_node, U, V)
         
         return model
 
     def _apply_split_construction(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用split construction策略"""
+        """Apply split-construction strategy."""
+
         target_node = self._find_node_by_strategy(model, strategy)
         if not target_node:
             return model
@@ -166,12 +167,11 @@ class MSEAccuracyEstimator:
 
         U, V = self._svd_decompose_weight(weight_data, d_mid, target_node.op_type)
         self._replace_with_low_rank_nodes(model, target_node, U, V)
-
         return model
     
     def _apply_mixed_strategy(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> onnx.ModelProto:
-        """应用混合策略（低秋+量化）"""
-        # 先应用低秋分解
+        """Apply mixed strategy (low-rank + quantization)."""
+        # Apply low-rank decomposition first
         low_rank_strategy = OptimizationStrategy(
             layer_name=strategy.layer_name,
             strategy_type=StrategyType.LOW_RANK,
@@ -180,89 +180,89 @@ class MSEAccuracyEstimator:
         )
         model = self._apply_low_rank_decomposition(model, low_rank_strategy)
         
-        # 然后对分解后的权重应用量化
-        # 这里需要找到新创建的U和V权重进行量化
+        # Then quantize decomposed weights
+        # This finds the new U/V weights and quantizes them
         quant_bits = strategy.parameters["quantization_bits"]
         self._quantize_decomposed_weights(model, strategy.layer_name, quant_bits)
         
         return model
     
     def _symmetric_quantize(self, weight: np.ndarray, bits: int, per_channel: bool = False) -> np.ndarray:
-        """对称量化实现"""
+        """Symmetric quantization."""
         if per_channel and weight.ndim >= 2:
-            # per-channel量化（沿第0维）
+            # Per-channel quantization (axis 0)
             scales = np.max(np.abs(weight), axis=tuple(range(1, weight.ndim)), keepdims=True)
         else:
-            # per-tensor量化
+            # Per-tensor quantization
             scales = np.max(np.abs(weight))
         
-        # 避免除零
+        # Avoid division by zero
         scales = np.maximum(scales, 1e-8)
         
-        # 量化范围
+        # Quantization range
         qmax = 2**(bits-1) - 1
         qmin = -2**(bits-1)
         
-        # 计算scale
+        # Compute scale
         scale = scales / qmax
         
-        # 量化
+        # Quantize
         quantized = np.round(weight / scale)
         quantized = np.clip(quantized, qmin, qmax)
         
-        # 反量化回float32
+        # Dequantize back to float32
         dequantized = quantized * scale
         
         return dequantized.astype(np.float32)
     
     def _asymmetric_quantize(self, weight: np.ndarray, bits: int) -> np.ndarray:
-        """非对称量化实现"""
-        # 计算min/max
+        """Asymmetric quantization."""
+        # Min/max
         w_min = np.min(weight)
         w_max = np.max(weight)
         
-        # 量化范围
+        # Quantization range
         qmin = 0
         qmax = 2**bits - 1
         
-        # 计算scale和zero_point
+        # Compute scale and zero point
         scale = (w_max - w_min) / (qmax - qmin)
-        scale = max(scale, 1e-8)  # 避免除零
+        scale = max(scale, 1e-8)  # Avoid division by zero
         
         zero_point = qmin - w_min / scale
         zero_point = np.round(np.clip(zero_point, qmin, qmax))
         
-        # 量化
+        # Quantize
         quantized = np.round(weight / scale + zero_point)
         quantized = np.clip(quantized, qmin, qmax)
         
-        # 反量化
+        # Dequantize
         dequantized = (quantized - zero_point) * scale
         
         return dequantized.astype(np.float32)
     
     def _svd_decompose_weight(self, weight: np.ndarray, rank: int, op_type: str) -> Tuple[np.ndarray, np.ndarray]:
-        """SVD分解权重矩阵"""
+        """SVD decomposition for a weight matrix."""
         original_shape = weight.shape
         
         if op_type == "Conv":
-            # Conv权重: (out_c, in_c, h, w) -> (out_c, in_c*h*w)
+            # Conv weights: (out_c, in_c, h, w) -> (out_c, in_c*h*w)
             out_c = original_shape[0]
             weight_matrix = weight.reshape(out_c, -1)
         else:
-            # FC权重: 直接使用
+            # FC weights: use directly
             weight_matrix = weight
         
-        # 执行SVD
+        # Run SVD
         U, S, Vt = np.linalg.svd(weight_matrix, full_matrices=False)
         
-        # 截断到指定rank
+        # Truncate to rank
         rank = min(rank, min(U.shape[1], Vt.shape[0]))
         U_truncated = U[:, :rank]
         S_truncated = S[:rank]
         Vt_truncated = Vt[:rank, :]
         
-        # 构造分解后的矩阵
+        # Build decomposed matrices
         U_new = U_truncated @ np.diag(S_truncated)  # (out_c, rank)
         V_new = Vt_truncated  # (rank, in_c*h*w)
         
@@ -270,20 +270,20 @@ class MSEAccuracyEstimator:
     
     def _replace_with_low_rank_nodes(self, model: onnx.ModelProto, original_node: onnx.NodeProto, 
                                    U: np.ndarray, V: np.ndarray):
-        """用两个MatMul节点替换原始节点"""
+        """Replace original node with two MatMul nodes."""
         graph = model.graph
         
-        # 生成唯一名称
+        # Unique names
         U_name = self._generate_unique_name(graph, f"U_{original_node.name}")
         V_name = self._generate_unique_name(graph, f"V_{original_node.name}")
         Y1_name = self._generate_unique_name(graph, f"Y1_{original_node.name}")
         
-        # 添加新的权重initializer
+        # Add new weight initializers
         U_init = onnx.helper.make_tensor(U_name, onnx.TensorProto.FLOAT, U.shape, U.flatten())
         V_init = onnx.helper.make_tensor(V_name, onnx.TensorProto.FLOAT, V.shape, V.flatten())
         graph.initializer.extend([U_init, V_init])
         
-        # 创建两个新的MatMul节点
+        # Create MatMul nodes
         matmul_v = onnx.helper.make_node(
             'MatMul',
             inputs=[original_node.input[0], V_name],
@@ -294,17 +294,54 @@ class MSEAccuracyEstimator:
         matmul_u = onnx.helper.make_node(
             'MatMul',
             inputs=[U_name, Y1_name],
-            outputs=[original_node.output[0]],  # 复用原输出名
+            outputs=[original_node.output[0]],  # Reuse original output name
             name=f"MatMul_U_{original_node.name}"
         )
         
-        # 从图中移除原始节点
+        # Remove original node
         graph.node.remove(original_node)
         
-        # 添加新节点
+        # Add new nodes
         graph.node.extend([matmul_v, matmul_u])
         
-        # 移除原始权重
+        # Remove original weight
+        original_weight_name = self._get_weight_name(original_node)
+        if original_weight_name:
+            for init in graph.initializer:
+                if init.name == original_weight_name:
+                    graph.initializer.remove(init)
+                    break
+
+    def _replace_with_split_nodes(self, model: onnx.ModelProto, original_node: onnx.NodeProto,
+                                  U: np.ndarray, V: np.ndarray):
+        """Replace original node with two MatMul nodes (split construction)."""
+        graph = model.graph
+
+        U_name = self._generate_unique_name(graph, f"U_{original_node.name}")
+        V_name = self._generate_unique_name(graph, f"V_{original_node.name}")
+        Y1_name = self._generate_unique_name(graph, f"Y1_{original_node.name}")
+
+        U_init = onnx.helper.make_tensor(U_name, onnx.TensorProto.FLOAT, U.shape, U.flatten())
+        V_init = onnx.helper.make_tensor(V_name, onnx.TensorProto.FLOAT, V.shape, V.flatten())
+        graph.initializer.extend([U_init, V_init])
+
+        matmul_u = onnx.helper.make_node(
+            'MatMul',
+            inputs=[original_node.input[0], U_name],
+            outputs=[Y1_name],
+            name=f"MatMul_U_{original_node.name}"
+        )
+
+        matmul_v = onnx.helper.make_node(
+            'MatMul',
+            inputs=[Y1_name, V_name],
+            outputs=[original_node.output[0]],
+            name=f"MatMul_V_{original_node.name}"
+        )
+
+        graph.node.remove(original_node)
+        graph.node.extend([matmul_u, matmul_v])
+
         original_weight_name = self._get_weight_name(original_node)
         if original_weight_name:
             for init in graph.initializer:
@@ -351,14 +388,14 @@ class MSEAccuracyEstimator:
     
     def evaluate_mse(self, original_model: onnx.ModelProto, modified_model: onnx.ModelProto, 
                     test_data: List[np.ndarray]) -> float:
-        """评估修改后模型与原模型的MSE差异"""
+        """Evaluate MSE between original and modified models."""
         try:
-            # 创建临时文件保存修改后的模型
+            # Save modified model to a temp file
             with tempfile.NamedTemporaryFile(suffix='.onnx', delete=False) as temp_file:
                 onnx.save(modified_model, temp_file.name)
                 temp_model_path = temp_file.name
             
-            # 创建推理会话
+            # Create inference sessions
             original_session = ort.InferenceSession(self.config.onnx_path)
             modified_session = ort.InferenceSession(temp_model_path)
             
@@ -367,24 +404,24 @@ class MSEAccuracyEstimator:
             mse_values = []
             
             for data in test_data:
-                # 原模型推理
+            # Original model inference
                 original_outputs = original_session.run(None, {input_name: data})
                 
-                # 修改后模型推理
+                # Modified model inference
                 try:
                     modified_outputs = modified_session.run(None, {input_name: data})
                 except Exception as e:
                     print(f"Warning: Modified model inference failed: {e}")
-                    return float('inf')  # 返回无穷大表示策略不可行
+                    return float('inf')  # Strategy is infeasible
                 
-                # 计算logits的MSE
-                original_logits = original_outputs[0]  # 假设第一个输出是logits
+                # Compute output MSE
+                original_logits = original_outputs[0]  # Assume first output is logits
                 modified_logits = modified_outputs[0]
                 
                 mse = np.mean((original_logits - modified_logits) ** 2)
                 mse_values.append(mse)
             
-            # 清理临时文件
+            # Clean up temp file
             os.unlink(temp_model_path)
             
             return np.mean(mse_values)
@@ -395,7 +432,8 @@ class MSEAccuracyEstimator:
 
     def predict_accuracy_loss(self, strategies: List[OptimizationStrategy],
                               layer_infos: List[LayerInfo]) -> float:
-        """FAP: 预测策略组合的精度损失"""
+        """FAP: Predict accuracy loss for strategy combinations."""
+
         if not strategies:
             return 0.0
 
@@ -443,17 +481,17 @@ class MSEAccuracyEstimator:
         return total_loss
     
     def measure_latency(self, model_path: str, test_data: List[np.ndarray]) -> float:
-        """测量模型推理延迟"""
+        """Measure model inference latency."""
         try:
             session = ort.InferenceSession(model_path)
             input_name = session.get_inputs()[0].name
             
-            # 预热
+            # Warmup
             dummy_data = test_data[0] if test_data else np.random.randn(*self.config.input_shape).astype(np.float32)
             for _ in range(self._warmup_count):
                 session.run(None, {input_name: dummy_data})
             
-            # 测量
+            # Measure
             latencies = []
             for i in range(min(self._measurement_count, len(test_data))):
                 data = test_data[i % len(test_data)]
@@ -462,7 +500,7 @@ class MSEAccuracyEstimator:
                 session.run(None, {input_name: data})
                 end_time = time.perf_counter()
                 
-                latencies.append((end_time - start_time) * 1000)  # 转换为毫秒
+                latencies.append((end_time - start_time) * 1000)  # Convert to ms
             
             return np.mean(latencies)
         
@@ -470,51 +508,51 @@ class MSEAccuracyEstimator:
             print(f"Error in latency measurement: {e}")
             return float('inf')
     
-    # 辅助方法
+    # Helpers
     def _find_node_by_strategy(self, model: onnx.ModelProto, strategy: OptimizationStrategy) -> Optional[onnx.NodeProto]:
-        """根据策略找到对应的ONNX节点"""
-        # 这里需要一个mapping从layer_name到onnx_node_name
-        # 简化实现：假设strategy.layer_name就是node名称或包含足够信息
+        """Find the ONNX node for a strategy."""
+        # A proper mapping from layer_name to onnx_node_name is needed.
+        # This is a simplified heuristic.
         for node in model.graph.node:
             if strategy.layer_name in node.name or node.name in strategy.layer_name:
                 return node
         return None
     
     def _get_weight_name(self, node: onnx.NodeProto) -> Optional[str]:
-        """获取节点的权重名称"""
-        # 查找initializer中的权重
+        """Get the node weight name."""
+        # Find weight in initializers
         for input_name in node.input:
-            # 简单启发式：第二个输入通常是权重（第一个是输入数据）
+            # Heuristic: second input is usually the weight
             if len(node.input) > 1 and input_name == node.input[1]:
                 return input_name
         return None
     
     def _get_weight_data(self, model: onnx.ModelProto, weight_name: str) -> Optional[np.ndarray]:
-        """从模型中获取权重数据"""
+        """Get weight data from the model."""
         for init in model.graph.initializer:
             if init.name == weight_name:
                 return onnx.numpy_helper.to_array(init)
         return None
     
     def _update_weight_in_model(self, model: onnx.ModelProto, weight_name: str, new_weight: np.ndarray):
-        """更新模型中的权重数据"""
+        """Update weight data in the model."""
         for init in model.graph.initializer:
             if init.name == weight_name:
-                # 清除原始数据
+                # Clear existing data
                 init.ClearField('raw_data')
                 init.ClearField('float_data')
                 init.ClearField('double_data')
                 init.ClearField('int32_data')
                 init.ClearField('int64_data')
                 
-                # 设置新数据
+                # Set new data
                 init.raw_data = new_weight.tobytes()
-                # 更新shape（如果改变了）
+                # Update shape if needed
                 init.dims[:] = new_weight.shape
                 break
     
     def _generate_unique_name(self, graph: onnx.GraphProto, base_name: str) -> str:
-        """生成唯一的名称"""
+        """Generate a unique name."""
         existing_names = {init.name for init in graph.initializer}
         existing_names.update({node.name for node in graph.node})
         
@@ -528,13 +566,13 @@ class MSEAccuracyEstimator:
     
     def _insert_quantization_nodes(self, model: onnx.ModelProto, target_node: onnx.NodeProto, 
                                  scale: float, zero_point: int, bits: int):
-        """插入量化/反量化节点"""
-        # 简化实现：这里只是占位，实际需要更复杂的图修改逻辑
+        """Insert quantization/dequantization nodes."""
+        # Placeholder implementation; real graph edits are more complex.
         pass
     
     def _quantize_decomposed_weights(self, model: onnx.ModelProto, layer_name: str, bits: int):
-        """对分解后的U、V权重进行量化"""
-        # 简化实现：找到对应的U、V权重并量化
+        """Quantize decomposed U/V weights."""
+        # Simplified: find U/V weights and quantize them
         for init in model.graph.initializer:
             if f"U_{layer_name}" in init.name or f"V_{layer_name}" in init.name:
                 weight_data = onnx.numpy_helper.to_array(init)
@@ -542,7 +580,7 @@ class MSEAccuracyEstimator:
                 self._update_weight_in_model(model, init.name, quantized_weight)
 
     def _build_split_weights(self, weight: np.ndarray, d_mid: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """构造split construction权重"""
+        """Build split-construction weights."""
         if weight.ndim != 2:
             return None, None
 
@@ -558,7 +596,7 @@ class MSEAccuracyEstimator:
         return u_svd, v_svd
 
     def _estimate_strategy_error(self, strategy: OptimizationStrategy, weight: np.ndarray) -> float:
-        """估算单策略重构误差"""
+        """Estimate reconstruction error for a strategy."""
         if weight.ndim < 2:
             return 0.0
 
@@ -598,7 +636,7 @@ class MSEAccuracyEstimator:
 
     def _estimate_coupling(self, layer_a: str, layer_b: str,
                            layer_vectors: Dict[str, np.ndarray]) -> float:
-        """估算层间耦合系数"""
+        """Estimate inter-layer coupling."""
         vec_a = layer_vectors.get(layer_a)
         vec_b = layer_vectors.get(layer_b)
         if vec_a is None or vec_b is None:
@@ -611,21 +649,21 @@ class MSEAccuracyEstimator:
 
 
 if __name__ == "__main__":
-    # 测试代码
+    # Test code
     from model_config import create_default_config
     from strategy_generator import OptimizationStrategy, StrategyType
     
-    # 创建测试配置
+    # Create test config
     config = create_default_config(
         onnx_path="test_model.onnx",
         layers_json_path="test_layers.json",
         input_shape=(1, 3, 224, 224)
     )
     
-    # 创建评估器
+    # Create evaluator
     evaluator = MSEAccuracyEstimator(config)
     
-    # 创建测试策略
+    # Create a test strategy
     test_strategy = OptimizationStrategy(
         layer_name="test_conv",
         strategy_type=StrategyType.WEIGHT_QUANTIZATION,
