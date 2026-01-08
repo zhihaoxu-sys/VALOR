@@ -242,6 +242,10 @@ class GreedyStrategySearcher:
                 chosen_idx = trial.suggest_categorical(f"strategy_{layer.name}", 
                                                      list(range(len(available_strategies))))
                 selected_strategies.append(available_strategies[chosen_idx])
+
+            predicted_loss = self.evaluator.predict_accuracy_loss(selected_strategies, layer_infos)
+            if predicted_loss > self.config.accuracy_threshold * self.early_stop_multiplier:
+                raise optuna.TrialPruned()
             
             # 获取本次trial的样本数预算
             n_samples = trial.suggest_categorical("n_samples", self.sample_progression)
@@ -249,8 +253,7 @@ class GreedyStrategySearcher:
             
             # Early stopping: 快速精度检查
             if n_samples == self.min_samples:
-                quick_mse = self._evaluate_strategies_mse(selected_strategies, current_test_data)
-                if quick_mse > self.config.accuracy_threshold * self.early_stop_multiplier:
+                if predicted_loss > self.config.accuracy_threshold * self.early_stop_multiplier:
                     raise optuna.TrialPruned()
             
             # 完整评估
